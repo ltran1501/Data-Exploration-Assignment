@@ -1,0 +1,165 @@
+---
+title: "Data Exploration Challenge"
+author: "Loan Tran"
+format: 
+  docx: 
+    echo: true
+    message: false
+editor: visual
+---
+
+## Libraries
+
+In the following code chunk, load all the libraries you will need:
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(fixest)
+```
+
+## Tasks:
+
+```{r}
+
+sales <- read_csv("Walmart_Sales.csv") #export dataset
+
+```
+
+In this research, the primary regression is about stating and answering whether higher temperatures causally affect sales. Based on the variables in the data set of Walmart weekly sales, I assume that seasons might affect both sales and temperature, which can be determined based on the months over the year. Winter is classified from December to February, Spring is from March to May, Summer is from June to August, and Fall is from September to November.
+
+```{r}
+cleaned_sales <- sales %>%
+  mutate(
+    day   = day(dmy(Date)),
+    month = month(dmy(Date)),
+    year  = year(dmy(Date)),
+    seasons = case_when(
+      month %in% c(12, 1, 2) ~ 'Winter',
+      month >= 3 & month <= 5 ~ 'Spring',
+      month >= 6 & month <= 8 ~ 'Summer',
+      month >= 9 & month <= 11 ~ 'Fall')) %>% 
+  group_by(Store) %>%
+  arrange(Date)
+```
+
+```{r}
+hist(
+  cleaned_sales$Weekly_Sales,
+  main = "Distribution of Weekly Sales",  # title
+  xlab = "Values",                        # X-axis label
+  ylab = "Frequency",                     # Y-axis label
+  col = "skyblue",                        # Bar color
+  border = "black"                        # Border color
+)
+```
+
+This graph represents a long right tail that indicates a large scale of variance. The skewness of a dependent variable - weekly sales usually leads to heteroskedasticity and non-normal residuals, which makes the model more sensitive to extreme values. As a result, I believe that log-transformation for regressions is better because it helps reduce this skewness.
+
+```{r}
+hist(
+  log(cleaned_sales$Weekly_Sales),
+  main = "Distribution of Log Weekly Sales",  # Title
+  xlab = "Values",                            # X-axis label
+  ylab = "Frequency",                         # Y-axis label
+  col = "skyblue",                            # Bar color
+  border = "black"                            # Border color
+)
+```
+
+Now, this log-transformation graph has a better distribution because it is more symmetric and does not show extreme long tail. Also, the logarithm reduces heteroskedasticity and reduces the influence of extreme values, which improves model performance and provides more accurate and reliable statistical analyses of weekly sales. Therefore, using log-transformation regression to analyze the causal effect of temperature on weekly sales is better in this case.
+
+```{r}
+#log transformation for weekly sales to show the effects of temperarures:
+log_s_temp <-feols(log(Weekly_Sales) ~ Temperature, data = cleaned_sales)
+etable(log_s_temp)
+```
+
+Based on the regression results, a one Fahrenheit increase in temperature is associated with an approximately 0.3% decrease in weekly sales, on average. Also, the temperature coefficient is statistically significant at the 0.1% level (p \< 0.001), indicating strong evidence of a negative relationship between temperature and weekly sales.
+
+Besides, the R-squared value is 0.00856, meaning that temperature explains less than 1% of the variation in weekly sales. Although the estimated effect is statistically significant, the model has very low explanatory power, suggesting that temperature alone does not meaningfully explain fluctuations in weekly sales.
+
+```{r}
+#log weekly sales regressed on sales and temperature with fixed effect of seasons:
+seasons_fe <- feols(log(Weekly_Sales) ~ Temperature | seasons, data = cleaned_sales)
+etable(seasons_fe)
+```
+
+Because seasons influence temperature and sales, controlling fixed effects for seasons will remove seasonal confounding. By adding fixed effects, this model identifies the effect of the temperature variation within the same season. The coefficient states that a one Fahrenheit increase in temperature is associated with a 0.6% decrease in weekly sales within the same season. Particularly, in the same season, the higher the temperature than usual is, the lower the sales Walmart earns. It is also statistically significant at 0.1% level. In addition, the within R-squared value is 0.01601, which temperature explains 1.6% of the variation in log weekly sales after accounting for season fixed effects.
+
+```{r}
+#compare all different stores at the same period of time without holiday flag:
+comp_store <- cleaned_sales %>%
+  ungroup() %>%   #remove grouping before filtering
+  #group by Store earlier in 'cleaned_sales'
+  filter(
+    day == 15,
+    month == 7,
+    year == 2011,
+    Holiday_Flag == 0
+  ) %>% #pickup randomly dates
+  select(Store, Weekly_Sales, Holiday_Flag, Temperature, day:seasons) %>%
+  arrange(desc(Weekly_Sales))
+```
+
+Although seasons have several effects on weekly sales, it seems each store has different weekly sales in the same period of time. To determine this, I would like to pick a date randomly (07/15/2011 in this case) in the summer without special holiday flags. Based on the results, the stores number 4 (with a sale of \$2,049046.9), number 20 (with a sale of \$2,039,875.8), number 13 (with a sale of \$1,956,813.3), and number 14 (with a sale of \$1,953,544.8) are respectively the top 4 stores that earn the highest sales. In contrast, the top 3 stores that have the lowest weekly sales are store 44 (with a sale of \$289,201.2), store 5 (with a sale of \$283,248.6), and store 33 (with a sale of \$265,003.5).
+
+```{r}
+#compare all different stores at the same period of time with holiday flag:
+comp_store_hol <- cleaned_sales %>%
+  ungroup() %>%   #remove grouping before filtering
+  #group by Store earlier in 'cleaned_sales'
+  filter(
+    day == 12,
+    month == 2,
+    year == 2010,
+    Holiday_Flag == 1
+  ) %>% #pickup randomly dates
+  select(Store, Weekly_Sales, Holiday_Flag, Temperature, day:seasons) %>%
+  arrange(desc(Weekly_Sales))
+```
+
+Implementing the same method as above; however, I include a factor of special holiday flags to see whether my previous data change or not depend on special holidays. In this case, I chose 02/12/2010 as the time for advertising with a special holiday week. Then, I collect the store number 4 (with a sale of \$2,188,307.4), number 10 (with a sale of \$2,176,028.5), number 2 (with a sale of \$2,137,809.5), and number 20 (with a sale of \$2,109,107.9), which are respectively the top 4 stores that earn the highest sales during the holiday week. Besides, the top 3 stores that have the lowest sales during the holiday week are store 5 (with a sale of \$311,825.7), store 33 (with a sale of \$294,882.8), and store 44 (with a sale of \$286,857.1).
+
+Based on those outputs, there are not many differences in the top highest and lowest sales positions in both circumstances. The store number 4 still holds the highest sales, and the top 3 stores with the lowest sales are still store number 5, 44, and 33. I also acknowledge that it does not matter whether it is on a special holiday or not, because the results of positions overall do not change much when including the holiday factor. Instead, it only contributes to and increases sales compared to the week of non special holiday. Although it is at the same time and same seasonality, these differences show that there are some unobserved factors that belong to the store, rather than just a store number. This might cause omitted variable bias due to unobserved heterogeneity. Unobserved variables might be demographic factors, store sizes, locations, and so on, which can explain the sales differences among all stores.
+
+To account for unobserved differences across stores, I include store, year, and month fixed effects. The model controls for time-invariant store heterogeneity as well as common temporal shocks, which estimates how temperature changes affect weekly sales within the same store over time. In previous steps, I classify seasons by grouping of months; therefore, I only include month fixed effects instead of seasons, which already absorbs seasonality. If including both in the same model, it can be redundant and might cause collinearity.
+
+```{r}
+#Log(Weekly Sales) regressed on temperature with store, year, month fixed effects
+store_time_fe <- feols(log(Weekly_Sales) ~ Temperature | Store + year + month, data = cleaned_sales)
+etable(store_time_fe)
+```
+
+A one-Fahrenheit increase in temperature is associated with a 0.08% increase in weekly sales within the same store, holding constant year and month effects. It is also statistically significant at 0.1% level. The within R-squared is 0.00174, meaning temperature explains around 0.17% of the within-store variation in weekly sales after accounting for fixed effects.
+
+Furthermore, in the previous testers, Holiday Flag is one of the biggest sales demand shifter, which could be correlated with temperature through a calendar. Even though holiday does not cause temperature, both of them are determined by the time of the year, which is statistical correlation. Also, although I control for fixed effect year and month, the holiday still concerns, in which it fails to account for the increase of sales over the holiday weeks, such as comparing Chirstmas week and other December weeks. Because holiday is a time-varying binary variable with economic meaning, it is included as regressor rather than fixed effects.
+
+```{r}
+#log sales regressed on temperature and holiday, with FE store, year, month:
+st_time_hol_fe <- feols(log(Weekly_Sales) ~ Temperature + Holiday_Flag| Store + year + month , data = cleaned_sales)
+etable(st_time_hol_fe)
+```
+
+A one-Fahrenheit increase in temperature is associated with an estimated of 0.09% increase in weekly sales within the same store, holding constant year and month effects. Besides, holiday weeks are associated with an approximately 2.98% increase in weekly sales, holding store and time fixed effects constant. Both coefficients are also statistically significant at 0.1% level. The within R-squared is 0.00586, indicating that temperature and holiday together explain about 0.59% of the within-store variation in weekly sales after controlling for fixed effects.
+
+```{r}
+#compare previous models:
+etable(log_s_temp, seasons_fe, store_time_fe, st_time_hol_fe)
+```
+
+Compare with these models, the analysis collected are:
+
+-   In the first model (log_s_temp), the coefficient shows a negative relationship with weekly sales, showing that higher temperatures are associated with lower weekly sales. Without a fixed effect, the log_s_temp model captures both within-store variation and between-store variation. Therefore, it might be biased due to omitted variables, such as store differences, seasons, or time. Based on that, it mostly demonstrated a raw correlation rather than a causal effect.
+
+-   In the second model (seasons_fe), although the coefficient is negative, it is stronger than the first regression after controlling for season fixed effects. In addition, compared to the third and fourth fixed effect model, it is less effective in isolating the causal effect of temperature on sales because it omits store, year, and month factors. Therefore, it might be biased due to omitted variables.
+
+-   In the third model (store_time_fe), the coefficient becomes a positive effect after applying fixed effects in store, year, and month. Fixed effects in the temp_fix model help control for store differences and time-invariant characteristics; therefore, the coefficient describes only within-store variation over time at this point. By removing unobserved store heterogeneity and time patterns, this estimate is more likely to reflect the causal impact of temperature on sales reliably.
+
+-   In the fourth model (st_time_hol_fe), after adding Holiday_Flag to the model, the temperature coefficient changes only slightly (from 0.0008 to 0.0009) and remains positive and statistically significant. This marginal change indicates that holiday weeks does not materially confound the estimated relationship between temperature and sales when store, year, and month fixed effects are controlled for. Therefore, the positive association between temperature and weekly sales appears robust to the inclusion of holiday effects.
+
+The negative coefficients in the first and second models are likely biased due to omitted variables such as store differences, year, or month characteristics. Because these factors are correlated with both temperature and sales, failing to control for them may produce a misleading negative relationship. The positive coefficient in the third and fourth model suggests that, after controlling for omitted variables, the model performance is more precise and effective.
+
+Overall, it seems that seasons have some influences on both sales and temperature. Besides, there are also unobserved variables under 'Store' variables that affect sales like demographics, locations, and store sizes, which leads to the weekly sales difference across stores in the same period of time. By fixed effects store, and time (year, month), it eliminates confoundings that make sales biased and suggests that higher temperatures are associated with slightly higher weekly sales. Based on the outputs, the estimated temperature effect turns slightly positive, but it is extremely small (about a 0.08% and 0.09% change in weekly sales for a 1°F increase). Also, the within-store R-squared value is very close to zero, which suggests temperature does not explain much of the week-to-week variation in sales. As a result, in this dataset, temperature does not look like an important driver of weekly sales.Therefore, this might not have a harmful impact on Walmart's sales when average temperatures have been rising over time.
